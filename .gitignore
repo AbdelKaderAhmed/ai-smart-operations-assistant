@@ -1,0 +1,37 @@
+# --- OS Files ---
+.DS_Store
+Thumbs.db
+
+# --- Python / Backend ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# --- JavaScript / Frontend ---
+node_modules/
+.next/
+out/
+build/
+.vercel
+*.tsbuildinfo
+.eslintcache
+
+# --- Docker ---
+.docker/
+
+# --- Databases ---
+*.db
+*.sqlite3
+
+# --- IDEs ---
+.vscode/
+.idea/
+*.swp
