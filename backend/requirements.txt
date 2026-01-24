@@ -1,0 +1,18 @@
+# Web Framework
+fastapi
+uvicorn
+
+# Configuration and Validation
+pydantic
+pydantic-settings
+python-dotenv
+
+# AI Integration
+openai
+
+# Security
+python-jose[cryptography]
+passlib[bcrypt]
+
+# Utilities
+httpx
