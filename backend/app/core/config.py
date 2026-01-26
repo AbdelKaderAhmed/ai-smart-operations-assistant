@@ -7,13 +7,14 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # AI Engine Configuration
-    # These must be provided in the .env file
-    OPENAI_API_KEY: str
-    MODEL_NAME: str = "gpt-4o"
+    # Switching to Groq for free tier access
+    OPENAI_API_KEY: Optional[str] = None
+    GROQ_API_KEY: Optional[str] = None
+    MODEL_NAME: str = "llama-3.1-8b-instant " # Default Groq model
     
     # Security and Authentication
     SECRET_KEY: str = "placeholder_for_security_reasons"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 1 week
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
     
     # Database Configuration
     DATABASE_URL: Optional[str] = None
@@ -21,5 +22,4 @@ class Settings(BaseSettings):
     # Load configuration from .env file
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
 
-# Global settings object to be imported in other modules
 settings = Settings()
