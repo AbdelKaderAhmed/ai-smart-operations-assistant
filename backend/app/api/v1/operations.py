@@ -15,11 +15,17 @@ async def analyze_command(user_request: UserCommand):
         # 1. Get AI Decision
         ai_message = ai_client.get_ai_decision(user_request.command)
         
-        # 2. Check if it's a Tool Call (Function)
-        if ai_message.tool_calls:
-            tool_call = ai_message.tool_calls[0]
+        
+        if not ai_message:
+            raise Exception("AI returned an empty response")
+
+        # 2. Check if it's a Tool Call (Safe Check)
+       
+        tool_calls = getattr(ai_message, 'tool_calls', None)
+
+        if tool_calls:
+            tool_call = tool_calls[0]
             function_name = tool_call.function.name
-            # Parse the arguments from string to dict
             function_args = json.loads(tool_call.function.arguments)
             
             # 3. Look up the function in our registry
@@ -32,16 +38,19 @@ async def analyze_command(user_request: UserCommand):
                     "intent": "action_executed",
                     "function": function_name,
                     "execution_result": result,
-                    "assistant_message": f"Successfully handled your request for {function_name}."
+                    "assistant_message": f"Operation {function_name} completed successfully."
                 }
             else:
-                return {"error": f"Function {function_name} not implemented yet."}
+                return {"error": f"Function {function_name} is registered in AI but not in Backend registry."}
         
         # 5. Fallback to simple text response
+        content = getattr(ai_message, 'content', "I couldn't process that request.")
         return {
             "intent": "text_response",
-            "content": ai_message.content
+            "assistant_message": content
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) 
+        
+        print(f"🔴 Backend Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
