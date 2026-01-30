@@ -3,6 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.api.v1.operations import router as operations_router
 from backend.app.core.config import settings
 
+from backend.app.db.session import engine, Base
+
+Base.metadata.create_all(bind=engine)
 app = FastAPI(title=settings.PROJECT_NAME)
 
 
