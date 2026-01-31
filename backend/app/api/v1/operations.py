@@ -106,3 +106,30 @@ async def delete_operation(op_id: int, db: Session = Depends(get_db)):
     db.delete(operation)
     db.commit()
     return {"message": f"Operation {op_id} deleted successfully"}
+
+
+
+
+class ExecuteCommand(BaseModel):
+    intent: str
+    data: dict
+
+@router.post("/execute-confirmed")
+async def execute_confirmed_command(request: ExecuteCommand, db: Session = Depends(get_db)):
+    try:
+        
+        executor = FUNCTION_REGISTRY.get(request.intent)
+        
+        if not executor:
+            raise HTTPException(status_code=400, detail="Function not found")
+
+       
+        result = await executor.execute(**request.data)
+        
+        return {
+            "status": "success",
+            "execution_result": result
+        }
+    except Exception as e:
+        print(f"🔴 Execution Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
