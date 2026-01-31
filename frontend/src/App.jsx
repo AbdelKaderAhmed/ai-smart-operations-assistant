@@ -30,28 +30,20 @@ function App() {
   const speak = (text) => {
     const synth = window.speechSynthesis;
     if (!synth) return;
+    synth.cancel(); 
 
-    synth.cancel(); // تفريغ الطابور القديم
-
-    // تقسيم النص لجمل لضمان عدم "تعليق" المحرك في النصوص الطويلة
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
-    
     sentences.forEach((sentence) => {
       const utterance = new SpeechSynthesisUtterance(sentence.trim());
       utterance.lang = 'en-US';
-      utterance.rate = 0.9; // سرعة هادئة للوضوح
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
-
+      utterance.rate = 0.9; 
       const voices = synth.getVoices();
-      // محاولة اختيار صوت طبيعي أكثر استقراراً
       const preferredVoice = voices.find(v => 
         (v.name.includes('Google') || v.name.includes('Natural') || v.name.includes('David')) && v.lang.startsWith('en')
       ) || voices[0];
       
       if (preferredVoice) utterance.voice = preferredVoice;
 
-      // Keep-Alive Loop: منع المحرك من النوم أثناء النطق
       const keepAlive = () => {
         if (synth.speaking) {
           synth.pause();
@@ -59,7 +51,6 @@ function App() {
           setTimeout(keepAlive, 5000);
         }
       };
-
       utterance.onstart = () => keepAlive();
       synth.speak(utterance);
     });
@@ -72,21 +63,19 @@ function App() {
       toast.error("Browser not supported");
       return;
     }
-
     if (isListening) {
       recognitionRef.current?.stop();
       return;
     }
-
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = 'en-US';
-    recognition.continuous = false; // التوقف التلقائي عند الصمت يحسن الفهم
-    recognition.interimResults = false; // التركيز على النتيجة النهائية فقط لزيادة الدقة
+    recognition.continuous = false; 
+    recognition.interimResults = false;
 
     recognition.onstart = () => {
       setIsListening(true);
-      toast('Listening for command...', { icon: '🎧', style: { background: '#1e293b', color: '#10b981' } });
+      toast('Listening...', { icon: '🎧', style: { background: '#1e293b', color: '#10b981' } });
     };
 
     recognition.onresult = (event) => {
@@ -103,16 +92,10 @@ function App() {
       }
     };
 
-    recognition.onerror = (e) => {
-      if (e.error !== 'no-speech') console.error("Mic Error:", e.error);
-      setIsListening(false);
-    };
-
     recognition.onend = () => setIsListening(false);
     recognition.start();
   };
 
-  // --- API Handlers ---
   const fetchHistory = async () => {
     try {
       const response = await axios.get('http://127.0.0.1:8000/api/v1/operations/history');
@@ -129,6 +112,7 @@ function App() {
     finally { setDeleteId(null); }
   };
 
+  // --- المنطق الموحد للإرسال (كتابة + صوت) ---
   const handleSend = async () => {
     if (!input.trim()) return;
     if (isListening) recognitionRef.current?.stop();
@@ -140,9 +124,23 @@ function App() {
 
     try {
       const response = await axios.post('http://127.0.0.1:8000/api/v1/operations/analyze', { command: input });
-      const botMessage = response.data.assistant_message;
-      setChat(prev => [...prev, { role: 'bot', content: botMessage }]);
-      speak(botMessage); 
+      const { assistant_message, intent } = response.data;
+      
+      setChat(prev => [...prev, { role: 'bot', content: assistant_message }]);
+      speak(assistant_message); 
+
+      // التوجيه التلقائي في حالة الـ Fallback أو ذكر المتلقي
+      if (intent === 'fallback_suggestion' || assistant_message.toLowerCase().includes('recipient')) {
+        setTimeout(() => {
+          setSelectedOp({
+            intent: 'send_email',
+            response_data: JSON.stringify({ recipient: '', subject: '', content: '' })
+          });
+          setActiveField('recipient');
+          toast('Switching to Email Protocol...', { icon: '📧' });
+        }, 1500);
+      }
+
       fetchHistory(); 
     } catch (err) { 
       toast.error('Link Offline');
@@ -173,7 +171,6 @@ function App() {
     fetchHistory();
     const unlockAudio = () => {
       const silent = new SpeechSynthesisUtterance(" ");
-      silent.volume = 0;
       window.speechSynthesis.speak(silent);
       window.removeEventListener('mousedown', unlockAudio);
     };
@@ -195,7 +192,7 @@ function App() {
     <div className="flex h-screen bg-[#05070a] text-slate-300 font-sans overflow-hidden">
       <Toaster position="top-right" />
       
-      {/* Modals and Sidebar (Keep previous logic) */}
+      {/* PURGE CONFIRMATION MODAL */}
       {deleteId && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-[#0f172a] border border-red-500/20 p-8 rounded-3xl max-w-sm w-full">
@@ -211,26 +208,52 @@ function App() {
         </div>
       )}
 
+      {/* REFINE INTELLIGENCE MODAL */}
       {selectedOp && (
         <div className="fixed inset-0 bg-[#05070a]/90 backdrop-blur-xl z-[60] flex items-center justify-center p-4">
           <div className="bg-[#0f172a] border border-slate-800 w-full max-w-2xl rounded-[2.5rem] overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
-              <h3 className="font-bold text-white uppercase tracking-tight flex items-center gap-2"><Sparkles size={18} className="text-blue-400"/> Refine Intelligence</h3>
+              <h3 className="font-bold text-white uppercase tracking-tight flex items-center gap-2">
+                <Sparkles size={18} className="text-blue-400"/> Refine Intelligence
+              </h3>
               <button onClick={() => setSelectedOp(null)} className="p-2 hover:bg-slate-800 rounded-full"><X size={24} /></button>
             </div>
             <div className="p-8 space-y-6">
               {selectedOp.intent === 'send_email' ? (
                 <div className="space-y-4">
-                  <input className={`w-full bg-[#05070a] border ${activeField === 'recipient' ? 'border-blue-500' : 'border-slate-800'} rounded-2xl px-5 py-3 text-blue-300 outline-none`} onFocus={() => setActiveField('recipient')} value={editData.recipient || ''} onChange={(e) => setEditData({...editData, recipient: e.target.value})} placeholder="Recipient" />
-                  <input className={`w-full bg-[#05070a] border ${activeField === 'subject' ? 'border-blue-500' : 'border-slate-800'} rounded-2xl px-5 py-3 text-white outline-none`} onFocus={() => setActiveField('subject')} value={editData.subject || ''} onChange={(e) => setEditData({...editData, subject: e.target.value})} placeholder="Subject" />
-                  <textarea rows={6} className={`w-full bg-[#05070a] border ${activeField === 'body' ? 'border-blue-500' : 'border-slate-800'} rounded-2xl px-5 py-4 text-slate-300 outline-none resize-none`} onFocus={() => setActiveField('body')} value={editData.content || ''} onChange={(e) => setEditData({...editData, content: e.target.value})} placeholder="Message" />
+                  <input 
+                    className={`w-full bg-[#05070a] border ${activeField === 'recipient' ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)]' : 'border-slate-800'} rounded-2xl px-5 py-3 text-blue-300 outline-none transition-all`} 
+                    onFocus={() => setActiveField('recipient')} 
+                    value={editData.recipient || ''} 
+                    onChange={(e) => setEditData({...editData, recipient: e.target.value})} 
+                    placeholder="Recipient" 
+                  />
+                  <input 
+                    className={`w-full bg-[#05070a] border ${activeField === 'subject' ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)]' : 'border-slate-800'} rounded-2xl px-5 py-3 text-white outline-none transition-all`} 
+                    onFocus={() => setActiveField('subject')} 
+                    value={editData.subject || ''} 
+                    onChange={(e) => setEditData({...editData, subject: e.target.value})} 
+                    placeholder="Subject" 
+                  />
+                  <textarea 
+                    rows={6} 
+                    className={`w-full bg-[#05070a] border ${activeField === 'body' ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.2)]' : 'border-slate-800'} rounded-2xl px-5 py-4 text-slate-300 outline-none resize-none transition-all`} 
+                    onFocus={() => setActiveField('body')} 
+                    value={editData.content || ''} 
+                    onChange={(e) => setEditData({...editData, content: e.target.value})} 
+                    placeholder="Message" 
+                  />
                 </div>
               ) : (
-                <input className="w-full bg-[#05070a] border border-slate-800 rounded-2xl px-5 py-3 text-emerald-400 font-mono" value={editData.start_time || ''} onChange={(e) => setEditData({...editData, start_time: e.target.value})} />
+                <input 
+                  className="w-full bg-[#05070a] border border-slate-800 rounded-2xl px-5 py-3 text-emerald-400 font-mono" 
+                  value={editData.start_time || ''} 
+                  onChange={(e) => setEditData({...editData, start_time: e.target.value})} 
+                />
               )}
             </div>
             <div className="p-6 border-t border-slate-800">
-              <button onClick={handleFinalExecute} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3">
+              <button onClick={handleFinalExecute} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-bold flex items-center justify-center gap-3 transition-all">
                 {loading ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle size={20} />} Authorize Action
               </button>
             </div>
@@ -238,6 +261,7 @@ function App() {
         </div>
       )}
 
+      {/* SIDEBAR */}
       <aside className="w-80 bg-[#0a0f1a] border-r border-slate-800/50 flex flex-col">
         <div className="p-8">
           <div className="flex items-center gap-3 mb-10">
@@ -249,8 +273,12 @@ function App() {
             {history.map((op) => (
               <div key={op.id} onClick={() => setSelectedOp(op)} className="group p-4 mb-2 rounded-2xl bg-slate-900/40 border border-slate-800/50 hover:border-blue-500 transition-all cursor-pointer relative">
                 <div className="flex justify-between items-start mb-1">
-                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${op.intent === 'send_email' ? 'bg-blue-500/10 text-blue-400' : 'bg-emerald-500/10 text-emerald-400'}`}>{op.intent.replace('_', ' ')}</span>
-                  <button onClick={(e) => { e.stopPropagation(); setDeleteId(op.id); }} className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-500 hover:text-red-500 transition-all"><Trash2 size={14} /></button>
+                  <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${op.intent.includes('email') ? 'bg-blue-500/10 text-blue-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                    {op.intent.replace('_', ' ')}
+                  </span>
+                  <button onClick={(e) => { e.stopPropagation(); setDeleteId(op.id); }} className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-500 hover:text-red-500 transition-all">
+                    <Trash2 size={14} />
+                  </button>
                 </div>
                 <p className="text-xs text-slate-400 truncate italic">"{op.command}"</p>
               </div>
@@ -259,6 +287,7 @@ function App() {
         </div>
       </aside>
 
+      {/* MAIN CHAT AREA */}
       <main className="flex-1 flex flex-col relative">
         <header className="h-20 border-b border-slate-800/30 flex items-center px-10">
           <div className="flex items-center gap-4 text-[11px] font-bold text-slate-500 uppercase tracking-widest">
@@ -268,9 +297,9 @@ function App() {
 
         <div className="flex-1 overflow-y-auto p-10 space-y-8">
           {chat.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
               <div className={`flex gap-5 max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-blue-600' : 'bg-slate-900 border border-slate-800'}`}>
+                <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${msg.role === 'user' ? 'bg-blue-600 shadow-lg shadow-blue-600/20' : 'bg-slate-900 border border-slate-800'}`}>
                   {msg.role === 'user' ? <User size={20} className="text-white" /> : <Bot size={20} className="text-blue-400" />}
                 </div>
                 <div className={`p-5 rounded-3xl text-sm ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-[#0f172a] border border-slate-800/50 text-slate-200 rounded-tl-none'}`}>
@@ -282,20 +311,23 @@ function App() {
           <div ref={chatEndRef} />
         </div>
 
+        {/* INPUT SECTION */}
         <div className="p-10 bg-gradient-to-t from-[#05070a]">
           <div className="max-w-4xl mx-auto relative">
             <div className="relative flex items-center">
               <input 
-                className={`w-full bg-[#0f172a] border border-slate-800/50 text-white rounded-[2rem] py-6 pl-8 pr-44 text-sm focus:border-blue-500/50 outline-none transition-all ${isListening ? 'ring-2 ring-blue-500/20' : ''}`} 
-                value={input} onChange={(e)=>setInput(e.target.value)} onKeyDown={(e)=>e.key==='Enter' && handleSend()} 
+                className={`w-full bg-[#0f172a] border border-slate-800/50 text-white rounded-[2rem] py-6 pl-8 pr-44 text-sm focus:border-blue-500/50 outline-none transition-all ${isListening ? 'ring-2 ring-blue-500/20 shadow-[0_0_20px_rgba(59,130,246,0.1)]' : ''}`} 
+                value={input} 
+                onChange={(e)=>setInput(e.target.value)} 
+                onKeyDown={(e)=>e.key==='Enter' && handleSend()} 
                 placeholder={isListening ? "Listening... speak clearly" : "Talk or type to deploy..."} 
               />
               <div className="absolute right-3 flex gap-2">
-                <button onClick={handleVoiceInput} className={`p-4 rounded-2xl border ${isListening ? 'bg-red-500/20 text-red-500 border-red-500/50 animate-pulse' : 'bg-slate-800 text-blue-400 border-transparent hover:bg-slate-700'}`}>
+                <button onClick={handleVoiceInput} className={`p-4 rounded-2xl border transition-all ${isListening ? 'bg-red-500/20 text-red-500 border-red-500/50 animate-pulse' : 'bg-slate-800 text-blue-400 border-transparent hover:bg-slate-700'}`}>
                   {isListening ? <MicOff size={20} /> : <Mic size={20} />}
                 </button>
                 <button onClick={handleSend} disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white px-8 rounded-2xl transition-all shadow-lg shadow-blue-600/20">
-                  <Send size={20} />
+                  {loading ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
                 </button>
               </div>
             </div>

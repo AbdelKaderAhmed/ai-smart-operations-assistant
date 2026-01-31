@@ -65,19 +65,44 @@ async def analyze_command(user_request: UserCommand, db: Session = Depends(get_d
                 return {"error": f"Function {function_name} is not registered in Backend."}
         
         # 7. Fallback: If no tool was called, handle it as a standard text chat
-        content = getattr(ai_message, 'content', "I couldn't process that request.")
+        
+        content = getattr(ai_message, 'content', "").strip()
+        
+        
+        unsupported_keywords = [
+            "pizza", "food", "music", "song", "weather", 
+            "buy", "shop", "game", "search the web"
+        ]
+        
+        
+        is_out_of_scope = any(word in user_request.command.lower() for word in unsupported_keywords)
+        
+        
+        ai_apologized = "sorry" in content.lower() or "can't" in content.lower() or "unable" in content.lower()
+
+        if is_out_of_scope or ai_apologized:
+            
+            content = (
+                f"I noticed you're asking about '{user_request.command}'. Currently, I specialize in "
+                f"Email and Scheduling only. Would you like to draft an email instead? "
+                f"Just tell me the recipient's name."
+            )
+            intent_type = "fallback_suggestion"
+        else:
+            intent_type = "text_response"
+
         
         new_op = Operation(
             command=user_request.command,
-            intent="text_response",
-            status="success",
-            response_data=json.dumps({"message": content})
+            intent=intent_type,
+            status="info",
+            response_data=json.dumps({"message": content, "original_content": getattr(ai_message, 'content', "")})
         )
         db.add(new_op)
         db.commit()
 
         return {
-            "intent": "text_response",
+            "intent": intent_type,
             "assistant_message": content
         }
         
