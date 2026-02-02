@@ -6,25 +6,27 @@ from backend.app.functions.base import BaseFunction
 from typing import Any, Dict
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 class SendEmailFunction(BaseFunction):
     """
     Real implementation for sending emails via SMTP.
     """
-    async def execute(self, recipient: str, subject: str, content: str) -> Dict[str, Any]:
+    
+    async def execute(self, recipient: str, subject: str, content: str, **kwargs) -> Dict[str, Any]:
         # 1. Configuration - Get data from .env
         smtp_user = os.getenv("SMTP_USER")
-        smtp_pass = os.getenv("SMTP_PASSWORD") # الـ 16 حرفاً من جوجل
+        smtp_pass = os.getenv("SMTP_PASSWORD") 
         smtp_server = os.getenv("SMTP_SERVER", "smtp.gmail.com")
         smtp_port = int(os.getenv("SMTP_PORT", 587))
 
-        # 2. Terminal Logging (For debugging)
+        # 2. Terminal Logging
         print(f"\n--- 🚀 ATTEMPTING REAL EMAIL DISPATCH ---")
         print(f"To: {recipient}")
         print(f"Subject: {subject}")
-        print(f"Using Account: {smtp_user}")
+        
+        if 'risk_level' in kwargs:
+            print(f"Risk Assessment: {kwargs['risk_level']}")
         print(f"-----------------------------------------\n")
 
         # 3. Prepare the Email Message
@@ -36,7 +38,6 @@ class SendEmailFunction(BaseFunction):
 
         try:
             # 4. Connect to Server and Send
-            # We use 'with' to ensure the connection closes automatically
             with smtplib.SMTP(smtp_server, smtp_port) as server:
                 server.starttls()  # Secure the connection
                 server.login(smtp_user, smtp_pass)
@@ -52,7 +53,6 @@ class SendEmailFunction(BaseFunction):
             }
 
         except Exception as e:
-            # Catching errors (like wrong password or network issues)
             print(f"❌ SMTP ERROR: {str(e)}")
             return {
                 "status": "error",

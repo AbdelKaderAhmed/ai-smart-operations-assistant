@@ -1,27 +1,33 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Union, Literal
 
-class EmailRequest(BaseModel):
-    """
-    Schema for sending professional emails to team members or clients.
-    """
-    recipient: str = Field(..., description="The recipient's email address")
-    subject: str = Field(..., description="The subject line of the email")
-    content: str = Field(..., description="The main body content of the email")
 
-class MeetingRequest(BaseModel):
-    """
-    Schema for scheduling a new meeting in the calendar.
-    """
-    title: str = Field(..., description="The purpose or title of the meeting")
-    attendees: List[str] = Field(..., description="List of email addresses of the participants")
-    start_time: str = Field(..., description="The ISO format date and time (e.g., 2026-02-01T10:00:00)")
-    duration: int = Field(default=30, description="Meeting duration in minutes")
+class EmailAction(BaseModel):
+    tool: Literal["send_email"] = "send_email"
+    recipient: str = Field(..., description="Email address")
+    subject: str = Field(..., description="Professional subject line")
+    content: str = Field(..., description="The body content")
+    risk_level: str = "medium" 
 
-class AIResponse(BaseModel):
+class MeetingAction(BaseModel):
+    tool: Literal["schedule_meeting"] = "schedule_meeting"
+    title: str = Field(..., description="Meeting title")
+    attendees: List[str]
+    start_time: str = Field(..., description="ISO 8601 format")
+    duration: int = 30
+    risk_level: str = "low"
+
+
+class ActionPlan(BaseModel):
     """
-    General response wrapper for AI operations.
+    This is the ONLY output allowed from the LLM.
+    It forces the Brain to think in terms of a list of actions.
     """
-    action_taken: str
-    status: str = "success"
-    details: Optional[dict] = None
+    thought_process: str = Field(..., description="Brief explanation of why these actions were chosen")
+    actions: List[Union[EmailAction, MeetingAction]] = Field(..., description="List of validated operations to perform")
+
+
+class OperationResult(BaseModel):
+    plan: ActionPlan
+    requires_approval: bool = True
+    system_validation: str = "pending"
