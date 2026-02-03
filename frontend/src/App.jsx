@@ -21,7 +21,7 @@ function App() {
   const chatEndRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // --- 🔊 نظام الصوت ---
+  // --- 🔊 نظام النطق (Text-to-Speech) ---
   const speak = (text) => {
     if (!isVoiceActive) return;
     window.speechSynthesis.cancel();
@@ -42,7 +42,7 @@ function App() {
     }
   };
 
-  // --- 🎙️ نظام الميكروفون ---
+  // --- 🎙️ نظام التعرف على الصوت (Speech-to-Text) ---
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -58,19 +58,19 @@ function App() {
     else recognitionRef.current?.start();
   };
 
-  // --- 🛠️ وظائف الحذف والتعديل (Operations) ---
+  // --- 🛠️ إدارة العمليات (Fetch, Delete, Edit) ---
   const fetchHistory = async () => {
     try {
       const res = await axios.get('http://127.0.0.1:8000/api/v1/operations/history');
       setHistory(res.data);
-    } catch (e) { console.error("History fetch error"); }
+    } catch (e) { console.error("Database sync error"); }
   };
 
   const deleteLog = async (id) => {
     try {
       await axios.delete(`http://127.0.0.1:8000/api/v1/operations/${id}`);
       setHistory(prev => prev.filter(log => log.id !== id));
-      speak("Operation record purged from database.");
+      speak("Record purged.");
       toast.success("Log Deleted");
     } catch (e) { toast.error("Delete Failed"); }
   };
@@ -79,39 +79,60 @@ function App() {
     try {
       const actions = JSON.parse(log.response_data);
       setProposedPlan(actions);
-      speak("Reloading operation parameters for modification.");
-      toast.success("Ready for Edit");
-    } catch (e) { toast.error("Could not parse log data"); }
+      speak("Reloading parameters.");
+      toast.success("Ready for modification");
+    } catch (e) { toast.error("Data Parse Error"); }
   };
 
-  // --- 📡 معالجة الأوامر ---
+  // --- 📡 معالجة الأوامر مع الذاكرة السياقية ---
   const handleSend = async () => {
     if (!input.trim()) return;
+
     const userMsg = { role: 'user', content: input };
-    setChat(prev => [...prev, userMsg]);
+    const currentChat = [...chat, userMsg];
+    setChat(currentChat);
     setLoading(true);
+    
     const currentInput = input;
     setInput('');
-    speak("Analyzing request.");
+    speak("Analyzing context.");
 
     try {
-      const res = await axios.post('http://127.0.0.1:8000/api/v1/operations/analyze', { command: currentInput });
+      // دمج وظيفة الـ Map المحدثة لإصلاح خطأ الـ 400
+      const sanitizedHistory = chat
+        .filter(m => m.content && m.content.trim() !== "") // تجاهل الرسائل الفارغة
+        .map(m => ({ 
+          role: m.role === 'bot' ? 'assistant' : 'user', // تحويل bot إلى assistant
+          content: m.content 
+        }));
+
+      const res = await axios.post('http://127.0.0.1:8000/api/v1/operations/analyze', { 
+        command: currentInput,
+        history: sanitizedHistory 
+      });
+
       const botMsg = res.data.assistant_message;
       setChat(prev => [...prev, { role: 'bot', content: botMsg }]);
       
       if (res.data.actions?.length > 0) {
         setProposedPlan(res.data.actions);
-        speak("Plan formulated. Human approval required.");
+        speak("Plan ready for review.");
       } else {
         speak(botMsg);
       }
       fetchHistory();
-    } catch (err) { speak("System link failure."); } finally { setLoading(false); }
+    } catch (err) { 
+      speak("Connection lost."); 
+      toast.error("System Offline");
+      console.error("Analysis Error:", err.response?.data || err.message);
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   const executePlan = async () => {
     setLoading(true);
-    speak("Dispatching sequences.");
+    speak("Executing confirmed sequence.");
     try {
       for (const action of proposedPlan) {
         const res = await axios.post('http://127.0.0.1:8000/api/v1/operations/execute-confirmed', {
@@ -122,10 +143,15 @@ function App() {
           setChat(prev => [...prev, { role: 'bot', type: 'meeting_card', data: res.data.execution_result }]);
         }
       }
-      speak("Mission accomplished.");
+      speak("Operation successful.");
       setProposedPlan(null);
       fetchHistory();
-    } catch (err) { speak("Execution error."); } finally { setLoading(false); }
+    } catch (err) { 
+      speak("Execution failure."); 
+      toast.error("Execution Error");
+    } finally { 
+      setLoading(false); 
+    }
   };
 
   useEffect(() => { fetchHistory(); }, []);
@@ -135,55 +161,62 @@ function App() {
     <div className="flex h-screen bg-[#020617] text-slate-300 font-sans overflow-hidden">
       <Toaster position="top-right" theme="dark" />
       
-      {/* 🟢 SIDEBAR: History with Edit & Delete */}
+      {/* 🟢 SIDEBAR */}
       <aside className="w-80 bg-[#070e1e] border-r border-white/5 flex flex-col hidden lg:flex">
         <div className="p-6 border-b border-white/5 flex items-center justify-between">
           <div className="flex items-center gap-3 font-black text-white italic tracking-tighter">
-            <Cpu size={20} className="text-blue-500" /> SMART.OPS
+            <Cpu size={20} className="text-blue-500 shadow-[0_0_10px_#3b82f6]" /> SMART.OPS
           </div>
-          <button onClick={toggleVocalSystem} className={`p-2 rounded-lg ${isVoiceActive ? 'bg-blue-500/10 text-blue-400' : 'bg-red-500/10 text-red-400'}`}>
+          <button onClick={toggleVocalSystem} className={`p-2 rounded-lg transition-all ${isVoiceActive ? 'bg-blue-500/20 text-blue-400' : 'bg-red-500/20 text-red-400'}`}>
             {isVoiceActive ? <Volume2 size={18} /> : <VolumeX size={18} />}
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-          <p className="text-[10px] font-black text-slate-600 uppercase tracking-widest px-2">Operation Logs</p>
+          <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] px-2 mb-4">Neural Logs</p>
           {history.map((log) => (
-            <div key={log.id} className="group bg-[#0f172a] border border-white/5 p-4 rounded-2xl hover:border-blue-500/40 transition-all">
+            <div key={log.id} className="group bg-[#0f172a]/40 border border-white/5 p-4 rounded-2xl hover:border-blue-500/30 transition-all hover:bg-[#0f172a]">
               <div className="flex justify-between items-center mb-2">
-                <span className="text-[10px] font-bold text-blue-400 uppercase">{log.intent}</span>
-                <div className="flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => handleEdit(log)} className="p-1.5 bg-white/5 hover:bg-blue-600 rounded-md text-slate-400 hover:text-white" title="Edit/Re-run">
+                <span className="text-[9px] font-black text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded uppercase">{log.intent}</span>
+                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => handleEdit(log)} className="p-1.5 hover:bg-blue-600/20 rounded-md text-slate-500 hover:text-blue-400">
                     <RefreshCw size={12} />
                   </button>
-                  <button onClick={() => deleteLog(log.id)} className="p-1.5 bg-white/5 hover:bg-red-600 rounded-md text-slate-400 hover:text-white" title="Delete">
+                  <button onClick={() => deleteLog(log.id)} className="p-1.5 hover:bg-red-600/20 rounded-md text-slate-500 hover:text-red-400">
                     <Trash2 size={12} />
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-slate-500 truncate italic">"{log.command}"</p>
+              <p className="text-[11px] text-slate-500 truncate italic">"{log.command}"</p>
             </div>
           ))}
         </div>
       </aside>
 
       {/* 🔵 MAIN PANEL */}
-      <main className="flex-1 flex flex-col relative bg-[radial-gradient(circle_at_top_right,_#0f172a_0%,_#020617_50%)]">
-        <header className="h-16 border-b border-white/5 flex items-center px-8 bg-[#020617]/50 backdrop-blur-md">
-           <div className={`w-2 h-2 rounded-full mr-3 ${isVoiceActive ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-red-500'}`}></div>
-           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Neural Link Active</span>
+      <main className="flex-1 flex flex-col relative bg-[radial-gradient(circle_at_top_right,_#0f172a_0%,_#020617_60%)]">
+        <header className="h-16 border-b border-white/5 flex items-center px-8 bg-[#020617]/50 backdrop-blur-xl z-20">
+           <div className={`w-2 h-2 rounded-full mr-3 animate-pulse ${isVoiceActive ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-red-500'}`}></div>
+           <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">System Status: {isVoiceActive ? 'Vocal' : 'Silent'}</span>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-8 space-y-6 pb-40 custom-scrollbar">
+        <div className="flex-1 overflow-y-auto p-8 space-y-8 pb-40 custom-scrollbar">
           {chat.map((msg, i) => (
-            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[75%] p-5 rounded-3xl ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-[#0f172a] border border-white/5 text-slate-200 shadow-2xl'}`}>
-                <div className="text-sm leading-relaxed">{msg.content}</div>
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in slide-in-from-bottom-2 duration-300`}>
+              <div className={`max-w-[75%] ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-[2rem] rounded-tr-none px-6 py-4 shadow-xl shadow-blue-900/20' : ''}`}>
+                {msg.content && <div className={`p-5 rounded-[2rem] text-sm leading-relaxed ${msg.role === 'bot' ? 'bg-[#0f172a]/80 backdrop-blur-md border border-white/5 rounded-tl-none text-slate-200' : ''}`}>{msg.content}</div>}
                 {msg.type === 'meeting_card' && (
-                  <div className="mt-4 bg-[#1e293b] border border-emerald-500/20 p-6 rounded-[2rem] shadow-2xl">
-                    <div className="text-emerald-400 text-[10px] font-black uppercase mb-2">Meeting Confirmed</div>
-                    <h4 className="text-white font-bold mb-4">{msg.data.details}</h4>
-                    <a href={msg.data.meeting_link} target="_blank" rel="noreferrer" className="block text-center bg-emerald-600 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-emerald-500 transition-all">Join Session</a>
+                  <div className="mt-4 bg-[#1e293b] border border-emerald-500/20 p-6 rounded-[2.5rem] shadow-2xl animate-in zoom-in-95">
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="p-3 bg-emerald-500/20 rounded-2xl"><Calendar className="text-emerald-400" size={20} /></div>
+                      <div>
+                        <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Confirmed</p>
+                        <h4 className="text-white font-bold">{msg.data.details}</h4>
+                      </div>
+                    </div>
+                    <a href={msg.data.meeting_link} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg transition-all">
+                      Launch Meeting <ExternalLink size={14} />
+                    </a>
                   </div>
                 )}
               </div>
@@ -192,46 +225,58 @@ function App() {
           <div ref={chatEndRef} />
         </div>
 
-        {/* ⌨️ FLOATING INPUT */}
-        <div className="absolute bottom-8 left-0 right-0 flex justify-center px-8">
-          <div className="w-full max-w-3xl bg-[#0f172a]/90 backdrop-blur-2xl border border-white/10 rounded-full p-2 flex gap-2 shadow-2xl">
-            <input className="flex-1 bg-transparent text-white px-8 text-sm outline-none" value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSend()} placeholder="Type mission command..." />
-            <button onClick={toggleMic} className={`p-4 rounded-full transition-all ${isListening ? 'bg-red-500 text-white shadow-[0_0_15px_red]' : 'text-slate-500 hover:text-blue-500'}`}>
+        {/* ⌨️ INPUT INTERFACE */}
+        <div className="absolute bottom-8 left-0 right-0 flex justify-center px-8 z-30">
+          <div className="w-full max-w-3xl bg-[#0f172a]/90 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-2 flex gap-2 shadow-2xl">
+            <input 
+              className="flex-1 bg-transparent text-white px-8 text-sm outline-none placeholder:text-slate-600" 
+              value={input} onChange={e => setInput(e.target.value)} 
+              onKeyDown={e => e.key === 'Enter' && handleSend()} 
+              placeholder="Enter neural command..." 
+            />
+            <button onClick={toggleMic} className={`p-4 rounded-full transition-all ${isListening ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)]' : 'text-slate-500 hover:text-blue-500 hover:bg-white/5'}`}>
               {isListening ? <MicOff size={20} /> : <Mic size={20} />}
             </button>
-            <button onClick={handleSend} className="bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-full transition-all">
-              <Send size={20} />
+            <button onClick={handleSend} disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-[1.5rem] shadow-lg transition-all active:scale-95 flex items-center justify-center min-w-[56px]">
+              {loading ? <Loader2 className="animate-spin" size={20} /> : <Send size={20} />}
             </button>
           </div>
         </div>
       </main>
 
-      {/* 🔴 MODAL: Action Validation */}
+      {/* 🔴 VALIDATION MODAL */}
       {proposedPlan && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6">
-          <div className="bg-[#0f172a] border border-blue-500/20 w-full max-w-xl rounded-[2.5rem] p-8 shadow-2xl">
-            <h2 className="text-xl font-black text-white mb-6 italic">RE-VALIDATE SEQUENCE</h2>
-            <div className="space-y-4 mb-8 max-h-[40vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[100] flex items-center justify-center p-6">
+          <div className="bg-[#0f172a] border border-blue-500/20 w-full max-w-xl rounded-[3rem] p-10 shadow-2xl relative">
+            <h2 className="text-xl font-black text-white mb-8 italic flex items-center gap-3">
+              <Terminal size={20} className="text-blue-500" /> Confirm Operation
+            </h2>
+            <div className="space-y-6 mb-10 max-h-[45vh] overflow-y-auto custom-scrollbar pr-4">
               {proposedPlan.map((act, idx) => (
-                <div key={idx} className="bg-white/5 p-6 rounded-3xl border border-white/5">
-                  <div className="text-[10px] font-bold text-blue-400 uppercase mb-4">{act.tool}</div>
-                  {Object.entries(act.parameters).map(([k, v]) => (
-                    <div key={k} className="mb-3">
-                      <label className="text-[9px] uppercase text-slate-600 block mb-1">{k}</label>
-                      <input className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-blue-500" value={v} onChange={e => {
-                        const copy = [...proposedPlan];
-                        copy[idx].parameters[k] = e.target.value;
-                        setProposedPlan(copy);
-                      }} />
-                    </div>
-                  ))}
+                <div key={idx} className="bg-white/5 p-6 rounded-[2rem] border border-white/5">
+                  <div className="text-[10px] font-black text-blue-400 uppercase mb-6 tracking-widest">{act.tool}</div>
+                  <div className="space-y-4">
+                    {Object.entries(act.parameters).map(([k, v]) => (
+                      <div key={k}>
+                        <label className="text-[9px] uppercase text-slate-600 font-black mb-2 block tracking-widest ml-1">{k}</label>
+                        <input className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-blue-500 transition-all" 
+                          value={Array.isArray(v) ? v.join(', ') : v} 
+                          onChange={e => {
+                            const copy = [...proposedPlan];
+                            copy[idx].parameters[k] = k === 'attendees' ? e.target.value.split(',').map(s => s.trim()) : e.target.value;
+                            setProposedPlan(copy);
+                          }} 
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ))}
             </div>
             <div className="flex gap-4">
-              <button onClick={() => setProposedPlan(null)} className="flex-1 py-4 text-xs font-bold text-slate-500 uppercase">Cancel</button>
-              <button onClick={executePlan} className="flex-[2] bg-blue-600 text-white py-4 rounded-2xl font-black text-xs uppercase shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2">
-                <ShieldCheck size={18} /> Execute Modified Plan
+              <button onClick={() => setProposedPlan(null)} className="flex-1 py-4 text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors">Abort</button>
+              <button onClick={executePlan} className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-blue-600/20 shadow-xl flex items-center justify-center gap-3 transition-all">
+                <ShieldCheck size={18} /> Authorize Deployment
               </button>
             </div>
           </div>

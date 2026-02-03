@@ -11,25 +11,38 @@ from backend.app.models.operation import Operation
 
 router = APIRouter()
 
+# --- النماذج المحدثة ---
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
 class UserCommand(BaseModel):
     command: str
-
+    history: Optional[List[ChatMessage]] = []  
 class ExecuteCommand(BaseModel):
     intent: str
     data: dict
 
+# --- Endpoints ---
+
 @router.post("/analyze")
 async def analyze_command(user_request: UserCommand, db: Session = Depends(get_db)):
     try:
-        ai_message = ai_client.get_ai_decision(user_request.command)
+        
+        ai_message = ai_client.get_ai_decision(
+            user_request.command, 
+            history=[msg.dict() for msg in user_request.history]
+        )
+        
         tool_calls = getattr(ai_message, 'tool_calls', None)
 
         if tool_calls:
             proposed_actions = []
             for tool_call in tool_calls:
                 try:
-                    
                     function_args = json.loads(tool_call.function.arguments)
+                    
                     
                     if 'attendees' in function_args and isinstance(function_args['attendees'], str):
                         function_args['attendees'] = [function_args['attendees']]
@@ -42,12 +55,10 @@ async def analyze_command(user_request: UserCommand, db: Session = Depends(get_d
                     continue 
 
             if proposed_actions:
-                
                 new_op = Operation(
                     command=user_request.command,
                     intent="plan_proposed",
                     status="pending_approval",
-                    
                     response_data=json.dumps(proposed_actions, ensure_ascii=False)
                 )
                 db.add(new_op)
@@ -56,11 +67,10 @@ async def analyze_command(user_request: UserCommand, db: Session = Depends(get_d
                 return {
                     "intent": "plan_proposed",
                     "actions": proposed_actions,
-                    "assistant_message": "Operation plan generated. Please approve to proceed."
+                    "assistant_message": "Context analyzed. I have a plan ready for your approval."
                 }
 
         content = getattr(ai_message, 'content', "").strip()
-        
         
         unsupported_keywords = ["pizza", "food", "music", "weather", "buy", "shop"]
         is_out_of_scope = any(word in user_request.command.lower() for word in unsupported_keywords)
@@ -71,7 +81,6 @@ async def analyze_command(user_request: UserCommand, db: Session = Depends(get_d
         else:
             intent_type = "text_response"
 
-        
         new_op = Operation(
             command=user_request.command,
             intent=intent_type,
@@ -95,12 +104,10 @@ async def analyze_command(user_request: UserCommand, db: Session = Depends(get_d
 @router.post("/execute-confirmed")
 async def execute_confirmed_command(request: ExecuteCommand, db: Session = Depends(get_db)):
     try:
-        
         executor = FUNCTION_REGISTRY.get(request.intent)
         if not executor:
             raise HTTPException(status_code=400, detail=f"Executor for {request.intent} not found")
 
-        
         result = await executor.execute(**request.data)
         
         return {
