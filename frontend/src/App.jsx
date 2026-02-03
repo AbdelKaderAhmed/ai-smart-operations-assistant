@@ -21,7 +21,7 @@ function App() {
   const chatEndRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // --- 🔊 نظام النطق (Text-to-Speech) ---
+  // --- 🔊 نظام النطق ---
   const speak = (text) => {
     if (!isVoiceActive) return;
     window.speechSynthesis.cancel();
@@ -42,7 +42,7 @@ function App() {
     }
   };
 
-  // --- 🎙️ نظام التعرف على الصوت (Speech-to-Text) ---
+  // --- 🎙️ نظام التعرف على الصوت ---
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -58,7 +58,7 @@ function App() {
     else recognitionRef.current?.start();
   };
 
-  // --- 🛠️ إدارة العمليات (Fetch, Delete, Edit) ---
+  // --- 🛠️ إدارة العمليات ---
   const fetchHistory = async () => {
     try {
       const res = await axios.get('http://127.0.0.1:8000/api/v1/operations/history');
@@ -84,25 +84,22 @@ function App() {
     } catch (e) { toast.error("Data Parse Error"); }
   };
 
-  // --- 📡 معالجة الأوامر مع الذاكرة السياقية ---
+  // --- 📡 معالجة الأوامر ---
   const handleSend = async () => {
     if (!input.trim()) return;
-
     const userMsg = { role: 'user', content: input };
     const currentChat = [...chat, userMsg];
     setChat(currentChat);
     setLoading(true);
-    
     const currentInput = input;
     setInput('');
     speak("Analyzing context.");
 
     try {
-      // دمج وظيفة الـ Map المحدثة لإصلاح خطأ الـ 400
       const sanitizedHistory = chat
-        .filter(m => m.content && m.content.trim() !== "") // تجاهل الرسائل الفارغة
+        .filter(m => m.content && m.content.trim() !== "")
         .map(m => ({ 
-          role: m.role === 'bot' ? 'assistant' : 'user', // تحويل bot إلى assistant
+          role: m.role === 'bot' ? 'assistant' : 'user', 
           content: m.content 
         }));
 
@@ -124,7 +121,6 @@ function App() {
     } catch (err) { 
       speak("Connection lost."); 
       toast.error("System Offline");
-      console.error("Analysis Error:", err.response?.data || err.message);
     } finally { 
       setLoading(false); 
     }
@@ -139,6 +135,12 @@ function App() {
           intent: action.tool,
           data: action.parameters
         });
+        
+        // التعامل مع حالة الجدولة الناجحة
+        if (res.data.status === 'scheduled') {
+          toast.success(res.data.message, { icon: '⏰' });
+        }
+
         if (action.tool === 'schedule_meeting' && res.data.status === 'success') {
           setChat(prev => [...prev, { role: 'bot', type: 'meeting_card', data: res.data.execution_result }]);
         }
@@ -157,6 +159,17 @@ function App() {
   useEffect(() => { fetchHistory(); }, []);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat]);
 
+  // دالة مساعدة لتحديث المعاملات المتداخلة
+  const updateParameter = (actionIdx, key, value, isNested = false) => {
+    const copy = [...proposedPlan];
+    if (isNested) {
+      copy[actionIdx].parameters.parameters[key] = key === 'attendees' ? value.split(',').map(s => s.trim()) : value;
+    } else {
+      copy[actionIdx].parameters[key] = key === 'attendees' ? value.split(',').map(s => s.trim()) : value;
+    }
+    setProposedPlan(copy);
+  };
+
   return (
     <div className="flex h-screen bg-[#020617] text-slate-300 font-sans overflow-hidden">
       <Toaster position="top-right" theme="dark" />
@@ -171,20 +184,15 @@ function App() {
             {isVoiceActive ? <Volume2 size={18} /> : <VolumeX size={18} />}
           </button>
         </div>
-
         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
           <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.2em] px-2 mb-4">Neural Logs</p>
           {history.map((log) => (
-            <div key={log.id} className="group bg-[#0f172a]/40 border border-white/5 p-4 rounded-2xl hover:border-blue-500/30 transition-all hover:bg-[#0f172a]">
+            <div key={log.id} className="group bg-[#0f172a]/40 border border-white/5 p-4 rounded-2xl hover:border-blue-500/30 transition-all">
               <div className="flex justify-between items-center mb-2">
                 <span className="text-[9px] font-black text-blue-500 bg-blue-500/5 px-2 py-0.5 rounded uppercase">{log.intent}</span>
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => handleEdit(log)} className="p-1.5 hover:bg-blue-600/20 rounded-md text-slate-500 hover:text-blue-400">
-                    <RefreshCw size={12} />
-                  </button>
-                  <button onClick={() => deleteLog(log.id)} className="p-1.5 hover:bg-red-600/20 rounded-md text-slate-500 hover:text-red-400">
-                    <Trash2 size={12} />
-                  </button>
+                  <button onClick={() => handleEdit(log)} className="p-1.5 hover:bg-blue-600/20 rounded-md text-slate-500"><RefreshCw size={12} /></button>
+                  <button onClick={() => deleteLog(log.id)} className="p-1.5 hover:bg-red-600/20 rounded-md text-slate-500"><Trash2 size={12} /></button>
                 </div>
               </div>
               <p className="text-[11px] text-slate-500 truncate italic">"{log.command}"</p>
@@ -206,7 +214,7 @@ function App() {
               <div className={`max-w-[75%] ${msg.role === 'user' ? 'bg-blue-600 text-white rounded-[2rem] rounded-tr-none px-6 py-4 shadow-xl shadow-blue-900/20' : ''}`}>
                 {msg.content && <div className={`p-5 rounded-[2rem] text-sm leading-relaxed ${msg.role === 'bot' ? 'bg-[#0f172a]/80 backdrop-blur-md border border-white/5 rounded-tl-none text-slate-200' : ''}`}>{msg.content}</div>}
                 {msg.type === 'meeting_card' && (
-                  <div className="mt-4 bg-[#1e293b] border border-emerald-500/20 p-6 rounded-[2.5rem] shadow-2xl animate-in zoom-in-95">
+                  <div className="mt-4 bg-[#1e293b] border border-emerald-500/20 p-6 rounded-[2.5rem] shadow-2xl">
                     <div className="flex items-center gap-4 mb-4">
                       <div className="p-3 bg-emerald-500/20 rounded-2xl"><Calendar className="text-emerald-400" size={20} /></div>
                       <div>
@@ -214,9 +222,7 @@ function App() {
                         <h4 className="text-white font-bold">{msg.data.details}</h4>
                       </div>
                     </div>
-                    <a href={msg.data.meeting_link} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg transition-all">
-                      Launch Meeting <ExternalLink size={14} />
-                    </a>
+                    <a href={msg.data.meeting_link} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 w-full bg-emerald-600 hover:bg-emerald-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-lg transition-all">Launch Meeting <ExternalLink size={14} /></a>
                   </div>
                 )}
               </div>
@@ -225,7 +231,7 @@ function App() {
           <div ref={chatEndRef} />
         </div>
 
-        {/* ⌨️ INPUT INTERFACE */}
+        {/* ⌨️ INPUT */}
         <div className="absolute bottom-8 left-0 right-0 flex justify-center px-8 z-30">
           <div className="w-full max-w-3xl bg-[#0f172a]/90 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] p-2 flex gap-2 shadow-2xl">
             <input 
@@ -244,7 +250,7 @@ function App() {
         </div>
       </main>
 
-      {/* 🔴 VALIDATION MODAL */}
+      {/* 🔴 VALIDATION MODAL (Updated for Scheduling) */}
       {proposedPlan && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-xl z-[100] flex items-center justify-center p-6">
           <div className="bg-[#0f172a] border border-blue-500/20 w-full max-w-xl rounded-[3rem] p-10 shadow-2xl relative">
@@ -254,19 +260,37 @@ function App() {
             <div className="space-y-6 mb-10 max-h-[45vh] overflow-y-auto custom-scrollbar pr-4">
               {proposedPlan.map((act, idx) => (
                 <div key={idx} className="bg-white/5 p-6 rounded-[2rem] border border-white/5">
-                  <div className="text-[10px] font-black text-blue-400 uppercase mb-6 tracking-widest">{act.tool}</div>
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{act.tool}</div>
+                    {act.tool === 'schedule_operation' && <Clock size={16} className="text-amber-500 animate-pulse" />}
+                  </div>
+                  
                   <div className="space-y-4">
                     {Object.entries(act.parameters).map(([k, v]) => (
                       <div key={k}>
-                        <label className="text-[9px] uppercase text-slate-600 font-black mb-2 block tracking-widest ml-1">{k}</label>
-                        <input className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-blue-500 transition-all" 
-                          value={Array.isArray(v) ? v.join(', ') : v} 
-                          onChange={e => {
-                            const copy = [...proposedPlan];
-                            copy[idx].parameters[k] = k === 'attendees' ? e.target.value.split(',').map(s => s.trim()) : e.target.value;
-                            setProposedPlan(copy);
-                          }} 
-                        />
+                        {/* إذا كان المعامل هو parameters (متداخل) */}
+                        {k === 'parameters' ? (
+                          <div className="mt-4 p-4 bg-black/20 rounded-2xl border border-white/5 space-y-4">
+                            <p className="text-[9px] font-black text-slate-500 uppercase mb-2">Operation Data:</p>
+                            {Object.entries(v).map(([nk, nv]) => (
+                              <div key={nk}>
+                                <label className="text-[9px] uppercase text-slate-600 font-black mb-1 block tracking-widest ml-1">{nk}</label>
+                                <input className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-2 text-xs text-white outline-none focus:border-blue-500" 
+                                  value={Array.isArray(nv) ? nv.join(', ') : nv} 
+                                  onChange={e => updateParameter(idx, nk, e.target.value, true)} 
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <>
+                            <label className="text-[9px] uppercase text-slate-600 font-black mb-1 block tracking-widest ml-1">{k}</label>
+                            <input className="w-full bg-black/40 border border-white/5 rounded-xl px-4 py-3 text-xs text-white outline-none focus:border-blue-500" 
+                              value={v} 
+                              onChange={e => updateParameter(idx, k, e.target.value)} 
+                            />
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -274,8 +298,8 @@ function App() {
               ))}
             </div>
             <div className="flex gap-4">
-              <button onClick={() => setProposedPlan(null)} className="flex-1 py-4 text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors">Abort</button>
-              <button onClick={executePlan} className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-blue-600/20 shadow-xl flex items-center justify-center gap-3 transition-all">
+              <button onClick={() => setProposedPlan(null)} className="flex-1 py-4 text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest">Abort</button>
+              <button onClick={executePlan} className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-3">
                 <ShieldCheck size={18} /> Authorize Deployment
               </button>
             </div>
