@@ -21,7 +21,6 @@ function App() {
   const chatEndRef = useRef(null);
   const recognitionRef = useRef(null);
 
-  // --- 🎙️ SmartOps Vocal System ---
   const speak = (text) => {
     if (!isVoiceActive) return;
     window.speechSynthesis.cancel();
@@ -58,7 +57,6 @@ function App() {
     else recognitionRef.current?.start();
   };
 
-  // --- 📊 Core Operations ---
   const fetchHistory = async () => {
     try {
       const res = await axios.get('http://127.0.0.1:8000/api/v1/operations/history');
@@ -111,7 +109,12 @@ function App() {
       
       if (res.data.actions?.length > 0) {
         setProposedPlan(res.data.actions);
-        speak("Operational plan ready for authorization.");
+        if (res.data.validation_status === 'flagged') {
+            speak("Alert: Operational errors detected. Verification required.");
+            toast.error("Validation Errors Found", { icon: '⚠️' });
+        } else {
+            speak("Operational plan ready for authorization.");
+        }
       } else {
         speak(botMsg);
       }
@@ -132,7 +135,6 @@ function App() {
           data: action.parameters
         });
         
-        // 1. Scheduled Card
         if (res.data.status === 'scheduled') {
           setChat(prev => [...prev, { 
             role: 'bot', 
@@ -144,7 +146,6 @@ function App() {
             } 
           }]);
         } 
-        // 2. Beautiful Email Success Card
         else if (action.tool === 'send_email' && res.data.status === 'success') {
           setChat(prev => [...prev, { 
             role: 'bot', 
@@ -155,7 +156,6 @@ function App() {
             } 
           }]);
         }
-        // 3. Beautiful Meeting Success Card
         else if (action.tool === 'schedule_meeting' && res.data.status === 'success') {
           setChat(prev => [...prev, { 
             role: 'bot', 
@@ -171,8 +171,35 @@ function App() {
       setProposedPlan(null);
       fetchHistory();
     } catch (err) { 
-      speak("Execution failure."); 
-      toast.error(err.response?.data?.detail || "Execution Error");
+      const errorData = err.response?.data?.detail;
+      
+      // --- NEW: Smart Suggestion Handler ---
+      if (errorData?.error_type === "SECURITY_VIOLATION") {
+        speak("Security violation. Outside operational hours.");
+        toast((t) => (
+          <div className="flex flex-col gap-3 p-1">
+            <div className="flex items-center gap-2 text-red-400 font-bold text-xs uppercase">
+              <AlertTriangle size={14}/> {errorData.message}
+            </div>
+            <button 
+              onClick={() => {
+                const copy = [...proposedPlan];
+                // Update the time to the suggested one
+                copy[0].parameters.execution_time = errorData.suggestion;
+                setProposedPlan(copy);
+                toast.dismiss(t.id);
+                toast.success("Time adjusted to 08:00 AM. Re-authorize now.", { icon: '⚡' });
+              }}
+              className="bg-blue-600 hover:bg-blue-500 text-white text-[10px] py-2 rounded-lg font-black uppercase tracking-widest transition-all"
+            >
+              Apply Suggestion: 08:00 AM
+            </button>
+          </div>
+        ), { duration: 6000, style: { background: '#0f172a', border: '1px solid #1e293b' } });
+      } else {
+        speak("Execution failure."); 
+        toast.error(err.response?.data?.detail || "Execution Error");
+      }
     } finally { setLoading(false); }
   };
 
@@ -188,6 +215,8 @@ function App() {
 
   useEffect(() => { fetchHistory(); }, []);
   useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chat]);
+
+  const hasValidationErrors = proposedPlan?.some(act => act.validation?.valid === false);
 
   return (
     <div className="flex h-screen bg-[#020617] text-slate-300 font-sans overflow-hidden">
@@ -250,7 +279,6 @@ function App() {
                   </div>
                 )}
 
-                {/* 📧 Email Success Card */}
                 {msg.type === 'email_success_card' && (
                   <div className="mt-4 bg-gradient-to-br from-[#1e293b] to-[#0f172a] border border-blue-500/30 p-6 rounded-[2rem] shadow-2xl relative overflow-hidden group">
                     <div className="absolute -right-2 -top-2 text-blue-500/10 group-hover:rotate-12 transition-transform duration-500">
@@ -273,7 +301,6 @@ function App() {
                   </div>
                 )}
 
-                {/* 📅 Meeting Success Card */}
                 {msg.type === 'meeting_success_card' && (
                   <div className="mt-4 bg-gradient-to-br from-[#064e3b]/20 to-[#020617] border border-emerald-500/30 p-6 rounded-[2rem] shadow-2xl relative overflow-hidden group">
                     <div className="absolute -right-2 -top-2 text-emerald-500/10 group-hover:scale-110 transition-transform duration-500">
@@ -294,7 +321,6 @@ function App() {
                   </div>
                 )}
 
-                {/* ⏳ Scheduled Card */}
                 {msg.type === 'scheduled_card' && (
                   <div className="mt-4 bg-[#070e1e] border border-blue-500/30 p-8 rounded-[2rem] shadow-2xl relative overflow-hidden group">
                     <div className="absolute -right-4 -top-4 text-blue-500/5 group-hover:scale-110 transition-transform">
@@ -351,19 +377,37 @@ function App() {
       {proposedPlan && (
         <div className="fixed inset-0 bg-black/90 backdrop-blur-xl z-[100] flex items-center justify-center p-6">
           <div className="bg-[#0f172a] border border-blue-500/20 w-full max-w-xl rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-blue-500 to-transparent animate-pulse"></div>
+            <div className={`absolute top-0 left-0 w-full h-1 animate-pulse ${hasValidationErrors ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+            
             <div className="flex items-center gap-4 mb-8">
-                <Fingerprint size={32} className="text-blue-500" />
-                <h2 className="text-xl font-black text-white uppercase italic tracking-tighter">Confirm Deployment</h2>
+                {hasValidationErrors ? <AlertTriangle size={32} className="text-red-500" /> : <Fingerprint size={32} className="text-blue-500" />}
+                <h2 className="text-xl font-black text-white uppercase italic tracking-tighter">
+                    {hasValidationErrors ? "Security Alert: Validation Failed" : "Confirm Deployment"}
+                </h2>
             </div>
             
             <div className="space-y-6 mb-10 max-h-[45vh] overflow-y-auto custom-scrollbar pr-4">
               {proposedPlan.map((act, idx) => (
-                <div key={idx} className={`bg-white/5 p-6 rounded-[2rem] border ${act.tool === 'cancel_operation' ? 'border-red-500/30' : 'border-white/5'}`}>
+                <div key={idx} className={`bg-white/5 p-6 rounded-[2rem] border transition-all ${
+                    act.validation?.valid === false ? 'border-red-500/40 bg-red-500/5' : 'border-white/5'
+                }`}>
                   <div className="flex items-center justify-between mb-6">
-                    <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em]">{act.tool}</span>
-                    <Zap size={14} className="text-blue-500" />
+                    <span className={`text-[10px] font-black uppercase tracking-[0.2em] ${act.validation?.valid === false ? 'text-red-400' : 'text-blue-400'}`}>
+                        {act.tool}
+                    </span>
+                    {act.validation?.valid === false ? <X size={14} className="text-red-500" /> : <Zap size={14} className="text-blue-500" />}
                   </div>
+
+                  {act.validation?.valid === false && (
+                    <div className="mb-6 space-y-2">
+                        {act.validation.errors.map((error, errIdx) => (
+                            <div key={errIdx} className="flex items-center gap-2 text-[10px] font-bold text-red-400 bg-red-500/10 p-2 rounded-lg border border-red-500/20">
+                                <AlertTriangle size={12} /> {error}
+                            </div>
+                        ))}
+                    </div>
+                  )}
+
                   <div className="space-y-4">
                     {Object.entries(act.parameters).map(([k, v]) => (
                       <div key={k}>
@@ -396,8 +440,17 @@ function App() {
 
             <div className="flex gap-4">
               <button onClick={() => setProposedPlan(null)} className="flex-1 py-4 text-[10px] font-black text-slate-500 hover:text-white uppercase tracking-widest transition-colors">Abort</button>
-              <button onClick={executePlan} className="flex-[2] bg-blue-600 hover:bg-blue-500 text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">
-                <ShieldCheck size={18} /> Authorize Deployment
+              <button 
+                onClick={executePlan} 
+                disabled={hasValidationErrors || loading}
+                className={`flex-[2] py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all ${
+                    hasValidationErrors 
+                    ? 'bg-slate-800 text-slate-600 cursor-not-allowed border border-white/5' 
+                    : 'bg-blue-600 hover:bg-blue-500 text-white'
+                }`}
+              >
+                {hasValidationErrors ? <X size={18} /> : <ShieldCheck size={18} />} 
+                {hasValidationErrors ? "Resolution Required" : "Authorize Deployment"}
               </button>
             </div>
           </div>
